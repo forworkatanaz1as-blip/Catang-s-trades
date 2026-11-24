@@ -3,41 +3,45 @@ name: Build MAGAZIN Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout project
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: '3.11'
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git zip unzip openjdk-17-jdk \
-            autoconf libtool pkg-config \
-            zlib1g-dev libncurses5-dev libncursesw5-dev \
-            cmake libffi-dev libssl-dev
-
-      - name: Install Buildozer
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install buildozer cython==0.29.36
-
-      - name: Build debug APK
-        run: buildozer -v android debug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+          node-version: '22'
+          cache: npm
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
-          name: MAGAZIN-Android-APK
-          path: bin/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          distribution: temurin
+          java-version: '21'
+      - name: Install dependencies
+        run: npm ci
+      - name: Prepare Capacitor Android project
+        run: |
+          npm run build
+          npx cap add android
+          npx cap sync android
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+      - name: Publish APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: build-${{ github.run_id }}-${{ github.run_attempt }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk MAGAZIN-Android-debug.apk
+          gh release create "$RELEASE_TAG" MAGAZIN-Android-debug.apk \
+            --target "$COMMIT_SHA" \
+            --title "MAGAZIN Android $RELEASE_TAG" \
+            --notes "Автоматическая debug-сборка для коммита $COMMIT_SHA."
